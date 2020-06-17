@@ -14,15 +14,78 @@
 
 namespace DotPulsar.Internal
 {
+    using System;
     using System.Buffers;
+#if NETCOREAPP3_1
+    using System.Runtime.Intrinsics.X86;
+
+#endif
 
     public static class Crc32C
+    {
+        public delegate uint CalculateChecksum(ReadOnlySequence<byte> sequence);
+
+        public static CalculateChecksum Calculate { get; }
+
+        static Crc32C()
+        {
+#if NETCOREAPP3_1
+            if (Crc32CSse.HardwareSupported)
+            {
+                Calculate = Crc32CSse.Calculate;
+                return;
+            }
+#endif
+            Calculate = Crc32Csw.Calculate;
+        }
+    }
+
+#if NETCOREAPP3_1
+    internal static class Crc32CSse
+    {
+        public static readonly bool HardwareSupported = Sse42.IsSupported;
+        private static readonly bool X64Available = Sse42.X64.IsSupported;
+
+        /// <summary>
+        /// Computes checksum for span parameter. Stateful, will continue from last hash value
+        /// </summary>
+        /// <param name="bytes">The input to compute the hash code for.</param>
+        public static uint Calculate(ReadOnlySequence<byte> bytes)
+        {
+            var crc = uint.MaxValue;
+
+            foreach (var readOnlyMemory in bytes)
+            {
+                var rest = readOnlyMemory.Span;
+
+                if (X64Available)
+                {
+                    while (rest.Length >= 8)
+                    {
+                        crc = (uint) Sse42.X64.Crc32(crc, BitConverter.ToUInt64(rest.Slice(0, 8)));
+                        rest = rest.Slice(8);
+                    }
+                }
+
+                while (rest.Length > 0)
+                {
+                    crc = Sse42.Crc32(crc, rest.Slice(0, 1)[0]);
+                    rest = rest.Slice(1);
+                }
+            }
+
+            return ~crc;
+        }
+    }
+#endif
+
+    internal static class Crc32Csw
     {
         private const uint Generator = 0x82F63B78u;
 
         private static readonly uint[] Lookup;
 
-        static Crc32C()
+        static Crc32Csw()
         {
             Lookup = new uint[16 * 256];
 
@@ -87,7 +150,7 @@ namespace DotPulsar.Internal
                 }
             }
 
-            return checksum ^ uint.MaxValue;
+            return ~checksum;
         }
     }
 }

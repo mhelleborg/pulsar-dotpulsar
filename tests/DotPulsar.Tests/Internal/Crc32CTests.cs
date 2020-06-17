@@ -15,12 +15,30 @@
 namespace DotPulsar.Tests.Internal
 {
     using DotPulsar.Internal;
+    using System.Collections.Generic;
     using Xunit;
 
     public class Crc32CTests
     {
-        [Fact]
-        public void Calculate_GivenSequenceWithSingleSegment_ShouldReturnExpectedChecksum()
+        public static IList<object[]> CrcCalculations()
+        {
+            var testCases = new List<object[]>
+            {
+                new object[] { Crc32C.Calculate },
+                new object[] { (Crc32C.CalculateChecksum) Crc32Csw.Calculate }
+            };
+#if NETCOREAPP3_1
+            if (Crc32CSse.HardwareSupported)
+            {
+                testCases.Add(new object[] { (Crc32C.CalculateChecksum) Crc32CSse.Calculate }
+                );
+            }
+#endif
+            return testCases;
+        }
+
+        [Theory, MemberData(nameof(CrcCalculations))]
+        public void Calculate_GivenSequenceWithSingleSegment_ShouldReturnExpectedChecksum(Crc32C.CalculateChecksum calculate)
         {
             //Arrange
             var segment = new byte[] { 0x10, 0x01, 0x18, 0xc9, 0xf8, 0x86, 0x94, 0xeb, 0x2c };
@@ -28,15 +46,15 @@ namespace DotPulsar.Tests.Internal
             var sequence = new SequenceBuilder<byte>().Append(segment).Build();
 
             //Act
-            var actual = Crc32C.Calculate(sequence);
+            var actual = calculate(sequence);
 
             //Assert
             const uint expected = 2355953212;
             Assert.Equal(expected, actual);
         }
 
-        [Fact]
-        public void Calculate_GivenSequenceWithMultipleSegments_ShouldReturnExpectedChecksum()
+        [Theory, MemberData(nameof(CrcCalculations))]
+        public void Calculate_GivenSequenceWithMultipleSegments_ShouldReturnExpectedChecksum(Crc32C.CalculateChecksum calculate)
         {
             //Arrange
             var s1 = new byte[]
@@ -51,7 +69,7 @@ namespace DotPulsar.Tests.Internal
             var sequence = new SequenceBuilder<byte>().Append(s1).Append(s2).Build();
 
             //Act
-            var actual = Crc32C.Calculate(sequence);
+            var actual = calculate(sequence);
 
             //Assert
             const uint expected = 1079987866;
